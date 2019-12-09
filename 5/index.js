@@ -56,7 +56,14 @@ const test4 = [
     99,
 ]
 
-let result = createComputer(input, [5])
-console.log("RESULT: ", result)
+let computer = createComputer(input)
+computer.input.write(5)
 
-process.exit(0)
+computer.run().then(
+    result =>
+    {
+        console.log("RESULT: ", result)
+        process.exit(0)
+    }
+)
+

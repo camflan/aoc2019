@@ -1,12 +1,14 @@
 const fs = require("fs")
 const input = JSON.parse(fs.readFileSync("./input.json").toString("utf8"))
 
+const createComputer = require("../common/computer")
+
 const debug = false
-const log = msg => {
+const log = (msg, ...rest) => {
     if (!debug) {
         return
     }
-    console.log(msg)
+    console.log(msg, ...rest)
 }
 
 const sum = (x, y) => x + y
@@ -56,6 +58,7 @@ input[1] = 12
 input[2] = 2
 console.log("Part1", main(input))
 
+
 // =======================
 
 // part 2
@@ -76,5 +79,3 @@ function findNounAndVerb(inputs) {
 }
 
 console.log("Part2", findNounAndVerb(input))
-
-process.exit(0)

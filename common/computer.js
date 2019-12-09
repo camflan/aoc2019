@@ -1,4 +1,5 @@
-const debug = true
+const { EventEmitter } = require("events")
+const debug = false
 const log = (msg, ...extra) => {
     if (!debug) {
         return
@@ -6,97 +7,164 @@ const log = (msg, ...extra) => {
     console.log(msg, ...extra)
 }
 
+class Connection extends EventEmitter {
+    constructor(initial) {
+        super()
+
+        this.buffer = []
+
+        this.lastWrite
+
+        this.write = this.write.bind(this)
+        this.notify = this.notify.bind(this)
+        this.read = this.read.bind(this)
+        this.pipe = this.pipe.bind(this)
+        this.end = this.end.bind(this)
+    }
+
+    write(data) {
+        this.lastWrite = data
+        this.buffer.push(data)
+        this.notify()
+    }
+
+    notify() {
+        while(
+            this.buffer.length &&
+            this.listenerCount("data")
+        ) {
+            this.emit("data", this.buffer.shift())
+            this.notify()
+        }
+
+    }
+
+    read() {
+        return new Promise(resolve => {
+            this.once("data", resolve)
+            this.notify()
+        })
+    }
+
+    pipe(connection) {
+        this.on('data', connection.write)
+        this.notify()
+    }
+
+    end() {
+        this.removeAllListeners("data")
+    }
+}
+
 const sum = (x, y) => x + y
 const mult = (x, y) => x * y
 
-const createComputer = (memory, inputs=[]) => {
+const createComputer = (memory) => {
     let _memory = [...memory]
-    let _output = []
     let ptr = 0
     let ticks = 0
+
+    const input = new Connection()
+    const output = new Connection()
 
     const instructions = {
         1: /* add */ operation(sum),
         2: /* multiply */ operation(mult),
-        3: /* input */ addr => {
-            _memory[_memory[++addr]] = inputs.shift()
+        3: /* input */ async addr => {
+            _memory[_memory[++addr]] = await input.read()
             return ++addr
         },
-        4: /* print */ (addr, modes) => {
-            let val = read(modes.pop(), _memory[++addr])
-            _output.push(val)
+        4: /* print */ (addr, read) => {
+            let val = read(++addr)
+            output.write(val)
             return ++addr
         },
-        5: /* jump-if-true */ (addr, modes) => {
-            let r1 = read(modes.pop(), _memory[++addr])
-            let r2 = read(modes.pop(), _memory[++addr])
+        5: /* jump-if-true */ (addr, read) => {
+            let r1 = read(++addr)
+            let r2 = read(++addr)
 
             return r1 ? r2 : ++addr
         },
-        6: /* jump-if-false */ (addr, modes) => {
-            let r1 = read(modes.pop(), _memory[++addr])
-            let r2 = read(modes.pop(), _memory[++addr])
+        6: /* jump-if-false */ (addr, read) => {
+            let r1 = read(++addr)
+            let r2 = read(++addr)
 
             return r1 ? ++addr : r2
         },
-        7: /* less-than */ (addr, modes) => {
-            let r1 = read(modes.pop(), _memory[++addr])
-            let r2 = read(modes.pop(), _memory[++addr])
-            let r3 = read(modes.pop(), ++addr)
+        7: /* less-than */ (addr, read) => {
+            let r1 = read(++addr)
+            let r2 = read(++addr)
+            let target = _memory[++addr]
 
-            _memory[r3] = r1 < r2 ? 1 : 0
+            _memory[target] = r1 < r2 ? 1 : 0
 
             return ++addr
         },
-        8: /* equals */ (addr, modes) => {
-            let r1 = read(modes.pop(), _memory[++addr])
-            let r2 = read(modes.pop(), _memory[++addr])
-            let r3 = read(modes.pop(), ++addr)
+        8: /* equals */ (addr, read) => {
+            let r1 = read(++addr)
+            let r2 = read(++addr)
+            let target = _memory[++addr]
 
-            _memory[r3] = r1 === r2 ? 1 : 0
+            _memory[target] = r1 === r2 ? 1 : 0
 
             return ++addr
         },
         99: /* halt */ () => {
+            console.log("HALT")
             return memory.length + 1
         },
     }
 
-    while (ptr < _memory.length) {
-        const [i, modes] = parseInstruction(_memory[ptr])
-        log(
-            `\n#${ticks++}\nptr: ${ptr}\ninst: ${
-                _memory[ptr]
-            } -> ${i}, ${modes}`
-        )
-        log("_MEMORY", _memory)
-        const _currentPtr = ptr
+    // connect our output to the connections input
+    const pipe = output.pipe
 
-        ptr = instructions[i](ptr, modes)
+    return {
+        tick, run, input, output, pipe
+    }
 
-        // if this instruction was PRINT and our next instruction isn't HALT
-        // we need to check the output to see if we had an error
-        if (i === 4 && _memory[ptr] !== 99 && getResult() !== 0) {
-            log("_MEMORY", _memory)
-            log("OUTPUT", _output)
-            throw new Error(
-                `Error at addr ${_currentPtr}, inst: ${i}, result: ${getResult()}, next ptr: ${ptr}`
+    async function* _tick() {
+        while (ptr < _memory.length) {
+            const [i, modes] = parseInstruction(_memory[ptr])
+            log(
+                `\n#${ticks++}\nptr: ${ptr}\ninst: ${
+                    _memory[ptr]
+                } -> ${i}, ${modes}`
             )
+
+            if(i === 99){
+                break
+            }
+
+            ptr = await instructions[i](ptr, reader(modes))
+            yield ptr
         }
+
+        // end of program
+        return -1
     }
 
-    log("====================================")
-    log("MEMORY", _memory)
-    log("OUTPUT", _output)
-
-    return getResult()
-
-    // returns the addr as value if we're in immediate mode
-    function read(mode, addr) {
-        return mode ? addr : _memory[addr]
+    function tick() {
+        return _tick().next()
     }
-    function getResult() {
-        return _output[_output.length - 1]
+
+    async function run() {
+        // run generator
+        for await (const i of _tick()) {
+            //
+        }
+
+        log("=== DONE ==========================")
+        log("MEMORY", _memory)
+        return output.lastWrite
+    }
+
+    // hof that will give us a read function that we can call with
+    // each addr and it will return value || value at addr based
+    // on the modes
+    function reader(modes) {
+        return function(addr) {
+            return modes.pop() ? _memory[addr] : _memory[_memory[addr]]
+        }
     }
     function parseInstruction(instruction) {
         // convert to 5 digits with 0 paddding in case they aren't there
@@ -108,17 +176,15 @@ const createComputer = (memory, inputs=[]) => {
         ]
     }
     function operation(fn) {
-        return function(addr, modes) {
+        return function(addr, read) {
             // find inputs
-            const r1 = read(modes.pop(), _memory[++addr])
-            const r2 = read(modes.pop(), _memory[++addr])
-            const r3 = read(modes.pop(), ++addr)
-            log("inputs", r1, r2)
+            const r1 = read(++addr)
+            const r2 = read(++addr)
+            const target = _memory[++addr]
 
             // get result and store it
             const result = fn(r1, r2)
-            _memory[r3] = result
-            log(`output: ${result} stored to ${r3}; confirm: ${_memory[r3]}`)
+            _memory[target] = result
 
             // increment our ptr
             return ++addr

@@ -78,9 +78,13 @@ const test3 = [
 ]
 
 function runAmplifiers(program, phaseSettings, start = 0) {
-    return phaseSettings.reduce((prior, phase) => {
-        return createComputer(program, [phase, prior])
-    }, start)
+    return phaseSettings.reduce(async (prior, phase) => {
+        const amp = createComputer(program)
+        amp.input.write(phase)
+        amp.input.write(await prior)
+
+        return amp.run()
+    }, Promise.resolve(start))
 }
 
 // DAY 1
@@ -598,8 +602,6 @@ const day1 = [
     99,
 ]
 
-let phaseSettings = [0, 1, 2, 3, 4]
-let results = []
 
 const moveItem = (ary, from, to) => {
     let _array = [...ary]
@@ -608,32 +610,38 @@ const moveItem = (ary, from, to) => {
     return _array
 }
 
-let i = 0
-do {
-    let ii = 0
+async function main(phaseSettings) {
+    let results = []
+
+    let i = 0
     do {
-        const thrusterSignal = runAmplifiers(day1, phaseSettings)
+        let ii = 0
+        do {
+            const thrusterSignal = await runAmplifiers(day1, phaseSettings)
 
-        log("PHASE: ", phaseSettings, " THRUSTER: ", thrusterSignal)
-        results.push([phaseSettings, thrusterSignal])
+            log("PHASE: ", phaseSettings, " THRUSTER: ", thrusterSignal)
+            results.push([phaseSettings, thrusterSignal])
 
-        phaseSettings = moveItem(phaseSettings, ii, ++ii)
-    } while (ii < 5)
+            phaseSettings = moveItem(phaseSettings, ii, ++ii)
+        } while (ii < 5)
 
-    phaseSettings = moveItem(phaseSettings, i, ++i)
-} while (i < 5)
+        phaseSettings = moveItem(phaseSettings, i, ++i)
+    } while (i < 5)
 
-const maxThruster = results.reduce(
-    (max, item) => {
-        if (max[1] < item[1]) {
-            return item
-        }
+    return results.reduce(
+        (max, item) => {
+            if (max[1] < item[1]) {
+                return item
+            }
 
-        return max
-    },
-    [[], 0]
-)
+            return max
+        },
+        [[], 0]
+    )
+}
 
-console.log("MAX SETTING", maxThruster)
+main([0, 1, 2, 3, 4]).then(result => {
+    console.log("MAX SETTING", result)
+    process.exit(0)
+}).catch(console.log)
 
-process.exit(0)
