@@ -1,8 +1,8 @@
 const tests = [
   {
-    imageData: "123456789012",
-    dimensions: [3, 2],
-    expected: 1
+    imageData: "0222112222120000",
+    dimensions: [2, 2],
+    expected: [0, 1, 1, 0]
   }
 ];
 
@@ -61,6 +61,9 @@ const find = pred => xs => xs.find(pred);
 // fold :: Func f -> a -> b -> c
 const fold = curry((fn, acc, xs) => xs.reduce(fn, acc));
 
+// foldR :: Func f -> a -> b -> c
+const foldR = curry((fn, xs) => xs.reduceRight(fn));
+
 // length :: [a] -> Number
 const length = xs => xs.length;
 
@@ -103,18 +106,30 @@ const multiply = curry((x, y) => x * y);
 const onesAndTwos = layer =>
   multiply(length(getOnes(layer)), length(getTwos(layer)));
 
-console.log(
-  tests.map(({ imageData, dimensions, expected }) => {
-    const got = main(imageData, dimensions);
-    console.log(got);
-    console.log(expected === got ? "SUCCESS" : "FAILURE");
-  })
-);
+const stackLayers = (behind, next) => {
+    return next.map((item, idx) => {
+        return item === 2 ? behind[idx] : item
+    })
+}
+
+const render = layer => layer.map(
+    char => char ? "XX" : "  "
+).join("")
+
+// tests
+// console.log(
+//   tests.map(({ imageData, dimensions, expected }) => {
+//     const got = main(imageData, dimensions);
+//     console.log(got);
+//     console.log(expected == got ? "SUCCESS" : "FAILURE");
+//   })
+// );
 
 function main(data, [width, height]) {
   return compose(
-    onesAndTwos,
-    fold(findMinZeros, []),
+    map(render),
+    chunk(width),
+    foldR(stackLayers),
     chunk(width * height),
     map(Number),
     splitOn("")
@@ -122,5 +137,6 @@ function main(data, [width, height]) {
 }
 
 console.log(main(puzzleInput, [25, 6]));
+
 
 process.exit(0);
